@@ -1,0 +1,456 @@
+openapi: 3.0.3
+info:
+  title: ACCK
+  version: 1.0.0
+  description: 行为以 docs/FEATURES.md 为准。字段以 docs/API.md 为准。
+servers:
+  - url: http://127.0.0.1:8000
+paths:
+  /v1/tasks:
+    post:
+      operationId: createTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTask"
+      responses:
+        "200":
+          description: 任务与版本 0 的订单已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "422":
+          description: 名字未注册，或 doc_id 已有任务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /v1/commits:
+    post:
+      operationId: commit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchIntent"
+      responses:
+        "200":
+          description: 含业务拒绝
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommitResult"
+        "404":
+          description: 任务不存在。不写账本
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "422":
+          description: 请求体不是合法 JSON 或类型不对
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /v1/tools/invoke:
+    post:
+      operationId: invokeTool
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ToolInvoke"
+      responses:
+        "200":
+          description: 含 EFFECT、SCHEMA、BUDGET、APPROVAL_REQUIRED
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolResult"
+        "404":
+          description: 任务不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /v1/tasks/{task_id}/compensate:
+    post:
+      operationId: compensate
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: OK 或 EFFECT
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompensateResult"
+        "404":
+          description: 任务不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /v1/tasks/{task_id}/replay:
+    post:
+      operationId: replay
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: OK 或 REPLAY_DIVERGENCE。不改模式，不改订单
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReplayResult"
+        "404":
+          description: 任务不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /v1/tasks/{task_id}/resume:
+    post:
+      operationId: resume
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: 已回到最大检查点
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "404":
+          description: 任务不存在，或没有检查点
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /v1/documents/{doc_id}:
+    get:
+      operationId: getDocument
+      parameters:
+        - $ref: "#/components/parameters/DocId"
+      responses:
+        "200":
+          description: 当前订单
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "404":
+          description: 订单不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /v1/tasks/{task_id}:
+    get:
+      operationId: getTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: 任务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "404":
+          description: 任务不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /v1/ledger:
+    get:
+      operationId: listLedger
+      parameters:
+        - name: doc_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: created_at 升序，相同则 id 升序
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LedgerRow"
+  /mcp:
+    post:
+      operationId: mcp
+      description: method 只允许 tools/list 与 tools/call。不使用 jsonrpc 与 id。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/McpRequest"
+      responses:
+        "200":
+          description: list 返回工具数组；call 与 /v1/tools/invoke 相同
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/McpResponse"
+components:
+  parameters:
+    TaskId:
+      name: task_id
+      in: path
+      required: true
+      schema:
+        type: string
+    DocId:
+      name: doc_id
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    CreateTask:
+      type: object
+      required:
+        - task_id
+        - doc_id
+        - document
+        - conflict_policy
+        - replan_limit
+        - token_limit
+        - tool_call_limit
+        - wall_clock_seconds
+        - agents
+      properties:
+        task_id: {type: string}
+        doc_id: {type: string}
+        document: {type: string, enum: [order]}
+        conflict_policy:
+          type: string
+          enum: [abort, refresh_and_replan, merge_if_disjoint]
+        replan_limit: {type: integer, minimum: 0}
+        token_limit: {type: integer, minimum: 0}
+        tool_call_limit: {type: integer, minimum: 0}
+        wall_clock_seconds: {type: integer, minimum: 0}
+        agents:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [agent_id, role]
+            properties:
+              agent_id: {type: string}
+              role: {type: string, enum: [planner, cashier]}
+    Op:
+      type: object
+      required: [op, path]
+      properties:
+        op: {type: string, enum: [add, remove, replace, test]}
+        path: {type: string, minLength: 1}
+        value: {}
+    PatchIntent:
+      type: object
+      required: [task_id, doc_id, agent_id, base_version, idempotency_key, ops]
+      properties:
+        task_id: {type: string}
+        doc_id: {type: string}
+        agent_id: {type: string}
+        base_version: {type: integer, minimum: 0}
+        idempotency_key: {type: string, minLength: 1}
+        ops:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/Op"
+        evidence:
+          type: object
+          additionalProperties: true
+        effect_ids:
+          type: array
+          items: {type: string}
+    CommitResult:
+      type: object
+      required: [decision, reason_code, version]
+      properties:
+        decision: {type: string, enum: [commit, reject]}
+        reason_code:
+          type: string
+          enum: [OK, SCHEMA, UNAUTHORIZED_PATH, OCC, EFFECT, BUDGET, IDEMPOTENCY_MISMATCH, TASK_ABORTED]
+        version: {type: integer}
+        content_hash: {type: string}
+        content: {}
+        replan_remaining: {type: integer, minimum: 0}
+    ToolInvoke:
+      type: object
+      required: [task_id, agent_id, name, args]
+      properties:
+        task_id: {type: string}
+        agent_id: {type: string}
+        name:
+          type: string
+          enum: [read_order, place_order, refund, send_receipt]
+        args:
+          type: object
+          additionalProperties: true
+        idempotency_key: {type: string}
+        approval_token: {type: string}
+    ToolResult:
+      type: object
+      required: [reason_code]
+      properties:
+        reason_code:
+          type: string
+          enum: [OK, SCHEMA, EFFECT, BUDGET, APPROVAL_REQUIRED, REPLAY_DIVERGENCE, TASK_ABORTED]
+        result:
+          nullable: true
+    CompensateResult:
+      type: object
+      required: [reason_code]
+      properties:
+        reason_code: {type: string, enum: [OK, EFFECT]}
+        effect_ids:
+          type: array
+          items: {type: string}
+    ReplayResult:
+      type: object
+      required: [reason_code]
+      properties:
+        reason_code: {type: string, enum: [OK, REPLAY_DIVERGENCE]}
+        steps: {type: integer, minimum: 0}
+        step_id: {type: integer}
+        kind: {type: string, enum: [llm, tool, commit]}
+        expected_hash: {type: string}
+        actual_hash: {type: string}
+    Document:
+      type: object
+      required: [doc_id, version, content, content_hash]
+      properties:
+        doc_id: {type: string}
+        version: {type: integer}
+        content:
+          type: object
+          required: [order_id, status, assignee, items, note, total]
+          properties:
+            order_id: {type: string}
+            status: {type: string, enum: [draft, confirmed, paid, cancelled]}
+            assignee: {type: string}
+            items: {type: array}
+            note: {type: string}
+            total: {type: number}
+            payment_id:
+              nullable: true
+              type: string
+        content_hash: {type: string}
+    Task:
+      type: object
+      required:
+        - task_id
+        - status
+        - mode
+        - conflict_policy
+        - token_used
+        - token_limit
+        - tool_calls_used
+        - tool_call_limit
+        - deadline_at
+        - replan_used
+        - replan_limit
+      properties:
+        task_id: {type: string}
+        status: {type: string, enum: [running, aborted]}
+        mode: {type: string, enum: [LIVE, STRICT, RESUME]}
+        conflict_policy:
+          type: string
+          enum: [abort, refresh_and_replan, merge_if_disjoint]
+        token_used: {type: integer}
+        token_limit: {type: integer}
+        tool_calls_used: {type: integer}
+        tool_call_limit: {type: integer}
+        deadline_at: {type: string, format: date-time}
+        replan_used: {type: integer}
+        replan_limit: {type: integer}
+    LedgerRow:
+      type: object
+      required:
+        - id
+        - task_id
+        - doc_id
+        - agent_id
+        - idempotency_key
+        - ops_hash
+        - evidence
+        - base_version
+        - decision
+        - reason_code
+        - ops
+        - hash_before
+        - effect_ids
+        - created_at
+      properties:
+        id: {type: integer}
+        task_id: {type: string}
+        doc_id: {type: string}
+        agent_id: {type: string}
+        idempotency_key: {type: string}
+        ops_hash: {type: string}
+        evidence: {type: object}
+        base_version: {type: integer}
+        result_version: {type: integer, nullable: true}
+        decision: {type: string, enum: [commit, reject]}
+        reason_code: {type: string}
+        ops: {type: array, items: {$ref: "#/components/schemas/Op"}}
+        hash_before: {type: string}
+        hash_after: {type: string, nullable: true}
+        effect_ids: {type: array, items: {type: string}}
+        trace_id: {type: string, nullable: true}
+        span_id: {type: string, nullable: true}
+        created_at: {type: string, format: date-time}
+    McpRequest:
+      type: object
+      required: [method, params]
+      properties:
+        method: {type: string, enum: ["tools/list", "tools/call"]}
+        params:
+          type: object
+          properties:
+            name: {type: string}
+            arguments: {type: object, additionalProperties: true}
+            task_id: {type: string}
+            agent_id: {type: string}
+            idempotency_key: {type: string}
+            approval_token: {type: string}
+    McpResponse:
+      type: object
+      properties:
+        tools:
+          type: array
+          items:
+            type: object
+            required: [name, description]
+            properties:
+              name: {type: string}
+              description: {type: string}
+              fields:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: {type: string}
+                    type: {type: string}
+        reason_code: {type: string}
+        result: {}
+    ErrorBody:
+      type: object
+      required: [detail]
+      properties:
+        detail: {type: string}
