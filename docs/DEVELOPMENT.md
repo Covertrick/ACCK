@@ -44,15 +44,20 @@ src/acck/
   api/app.py
   api/routes.py
   api/mcp.py
+  collab/decide.py
+  collab/loop.py
+  collab/prompts.py
   runtime/langgraph_adapter.py
 tools/
 harness/run.py
 harness/suites/order_v1.yaml
+harness/suites/agent_v1.yaml
 demo/story.py
+demo/fixtures/story_decisions.json
 tests/
 ```
 
-`kernel` 不 import LangGraph、FastAPI、MCP、`tools/`。`api/app.py` 启动时注册插件，并挂上 `POST /mcp`。不另起 MCP 进程。`Kernel.commit` 是订单的唯一写入口。`no_kernel` 不调用它。组件图见 `docs/ARCHITECTURE.md`。`store/schema.sql` 与 `docs/DATABASE.md` 一致。
+`kernel` 不 import LangGraph、FastAPI、MCP、`tools/`、`collab`。`collab` 调用 `Kernel.commit` 和工具入口，并在模型返回后写 `kind=llm`。`api/app.py` 启动时注册插件，并挂上 `POST /mcp`。不另起 MCP 进程。`Kernel.commit` 是订单的唯一写入口。`no_kernel` 不调用它。组件图见 `docs/ARCHITECTURE.md`。`store/schema.sql` 与 `docs/DATABASE.md` 一致。
 
 ---
 
@@ -182,14 +187,15 @@ class OrchestratorAdapter(Protocol):
   "token_limit": 2000,
   "tool_call_limit": 20,
   "wall_clock_seconds": 60,
+  "goal": "",
   "agents": [
-    {"agent_id": "a1", "role": "planner"},
-    {"agent_id": "a2", "role": "cashier"}
+    {"agent_id": "a1", "role": "planner", "goal": ""},
+    {"agent_id": "a2", "role": "cashier", "goal": ""}
   ]
 }
 ```
 
-`deadline_at = now() UTC + wall_clock_seconds`。`document`、`conflict_policy`、`role` 未注册，或 `doc_id` 已有任务，均为 422。`mode=LIVE`，`status=running`，文档用 `DocumentSpec.initial(doc_id)`。
+`deadline_at = now() UTC + wall_clock_seconds`。`document`、`conflict_policy`、`role` 未注册，或 `doc_id` 已有任务，均为 422。`goal` 缺省时按空字符串入库。`mode=LIVE`，`status=running`，文档用 `DocumentSpec.initial(doc_id)`。共同目标为空时不启动协作循环。
 
 `POST /v1/commits` 的体就是 `PatchIntent`。`POST /v1/tools/invoke` 的体见功能文档第 7 节。
 
@@ -213,7 +219,8 @@ class OrchestratorAdapter(Protocol):
 | `tests/test_otel.py` | 账本与效应的 `trace_id` 等于对应 span |
 | `tests/test_mcp.py` | 列表含四个工具名；`place_order` 产生 effect 与 cassette |
 | `tests/test_api.py` | 422、404 与业务 reject |
+| `tests/test_collab.py` | 决定 JSON 解析失败不改订单；相同 ops 哈希不第二次提交；交接不写入订单；`kernel` 不引用 `collab` |
 
 运行：`python -m unittest discover -s tests`。
 
-实现顺序：骨架与注册表 → 提交、权限、幂等 → 三种 OCC → 工具与补偿 → 预算 → cassette、STRICT、resume → HTTP → OTel → LangGraph 与 `demo/story.py` → MCP → Harness。前一步未绿，不开始下一步。
+实现顺序：骨架与注册表 → 提交、权限、幂等 → 三种 OCC → 工具与补偿 → 预算 → cassette、STRICT、resume → HTTP → OTel → 协作循环 → LangGraph 与 `demo/story.py` → MCP → `order_v1` → `agent_v1`。前一步未绿，不开始下一步。LangGraph 只按角色调用 `collab.loop`。

@@ -42,7 +42,7 @@
 
 ### 后果
 
-本版内置名字是 `read_order`、`place_order`、`refund`、`send_receipt`、`abort`、`refresh_and_replan`、`merge_if_disjoint`、`order`、LangGraph，以及脚本模型或 `ACCK_LLM=live`。
+本版内置名字是 `read_order`、`place_order`、`refund`、`send_receipt`、`abort`、`refresh_and_replan`、`merge_if_disjoint`、`order`、LangGraph，以及协作层使用的脚本模型或 `ACCK_LLM=live`。模型补全不在 `commit.py` 里调用。
 
 没有卸载、热更新，也没有按任务分开的注册表。
 

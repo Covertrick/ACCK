@@ -14,11 +14,11 @@
 
 ## 内容
 
-行为只改 `docs/FEATURES.md`。实现步骤和测试文件只改 `docs/DEVELOPMENT.md`。表、索引和事务只改 `docs/DATABASE.md`。用例期望只改 `docs/HARNESS.md`。接口示例改 `docs/API.md` 和 `docs/openapi.yaml`。已经接受的理由改 `docs/ADR/`，并在 `docs/DECISIONS.md` 留一行。不要在功能文档里再写一篇理由。
+行为只改 `docs/FEATURES.md`。协作层的决定、循环和交接也在这一份，不在内核的 11 步里再写一遍。实现步骤和测试文件只改 `docs/DEVELOPMENT.md`。表、索引和事务只改 `docs/DATABASE.md`。用例期望只改 `docs/HARNESS.md`。接口示例改 `docs/API.md` 和 `docs/openapi.yaml`。已经接受的理由改 `docs/ADR/`，并在 `docs/DECISIONS.md` 留一行。不要在功能文档里再写一篇理由。
 
 不要把 Kubernetes、Redis、Go sidecar、OAuth、可重排的门、效应状态 `rejected` 或任务状态 `completed` 加回验收。这些在需求里是不做。
 
-新测试对上开发文档第 8 节的文件，或对上 `docs/HARNESS.md` 已有的用例名。不要为了覆盖 `refresh_and_replan` 上限再新增一个评测用例名；该行为在 `tests/test_occ.py`。
+新测试对上开发文档第 8 节的文件，或对上 `docs/HARNESS.md` 已有的用例名。不要为了覆盖 `refresh_and_replan` 上限再新增一个评测用例名；该行为在 `tests/test_occ.py`。Agent 用例只加在 `agent_v1`，不要塞进 `order_v1`。
 
 代码落地之后，提交前运行：
 
@@ -30,6 +30,7 @@ python -m unittest discover -s tests
 
 ```text
 python -m harness.run --suite harness/suites/order_v1.yaml --mode full_kernel --out experiments/out
+python -m harness.run --suite harness/suites/agent_v1.yaml --mode full_kernel --out experiments/out
 ```
 
 `commit.py` 里不写订单字段。字段、状态迁移和角色路径放在 `order` 的 `DocumentSpec`。

@@ -2,7 +2,7 @@
 
 ## 目的
 
-规定三种模式、十个用例、套件文件和报告长什么样。
+规定内核套件与 Agent 套件的模式、用例和报告。课程报告以 Agent 套件说明协作是否可靠；内核套件说明写入为什么挡得住。
 
 ## 读者
 
@@ -10,7 +10,7 @@
 
 ## 范围
 
-不新增用例名。`refresh_and_replan` 达到上限不在本套件，而在 `tests/test_occ.py`。
+`order_v1` 不新增用例名，也不进入协作循环。`refresh_and_replan` 达到上限不在本套件，而在 `tests/test_occ.py`。`agent_v1` 只有下面三个用例。
 
 ## 内容
 
@@ -79,3 +79,54 @@ cases:
 ```
 
 非全内核运行时，`full_kernel_commit_ms` 与 `latency_note` 省略。未超出目标时 `latency_note` 为空字符串。
+
+### Agent 套件
+
+```text
+python -m harness.run --suite harness/suites/agent_v1.yaml --mode full_kernel --out experiments/out
+```
+
+报告写到 `experiments/out/report.agent.<mode>.json`。`ACCK_LLM=script` 时按各用例的 `decisions` 弹出功能文档第 14 节的决定 JSON，供回归。`ACCK_LLM=live` 时同一命令调用真实模型。课程报告里的协作数字来自 live。live 的失败不改 script 回归的期望。
+
+`task_success` 表示最终订单与标准结果一致（`order_id` 等于该用例的 `doc_id`）。`first_illegal_rate` 是被拒绝的提交或工具次数，加上协作层拦住的重复 ops 次数，除以模型提出的 `commit` 与 `tool` 次数。没有这类提议时该率为 0。`repair_success` 表示出现拒绝之后，同一 Agent 在任务中止前有一次被接受的提交或工具。`handoff_mismatch` 表示某次 `handoff` 的 `claims.total` 或 `claims.status` 与当时订单不同。`receipt_send_count` 是 `send_receipt` 真实调用次数。
+
+`confirm_and_pay` 按默认顺序。共同目标是「把订单确认为加急，总价 128，然后收款并出收据」。规划者目标：状态改为 `confirmed`，备注写成「加急」，总价写成 128，然后交接。收银目标：幂等键 `pay-1` 调用 `place_order`，把 `payment_id` 写成 `pay_pay-1`、状态写成 `paid`，再调用 `send_receipt`。标准结果：
+
+```json
+{
+  "status": "paid",
+  "assignee": "",
+  "items": [],
+  "note": "加急",
+  "total": 128,
+  "payment_id": "pay_pay-1"
+}
+```
+
+`note_conflict` 与 `split_fields` 使用 `parallel_first_commit`。前者策略 `abort`：规划者把备注写成 `from-planner`，收银把备注写成 `from-cashier`。后者策略 `merge_if_disjoint`：规划者把 `/assignee` 写成 `ada`，收银把 `/note` 写成 `paid-note`。
+
+| 用例 | `no_kernel` | `contract_only` | `full_kernel` |
+|------|-------------|-----------------|---------------|
+| `confirm_and_pay` | 不等于标准结果，或扣款大于 1 | 同键多次扣款 | 等于标准结果，扣款 1，收据 1 |
+| `note_conflict` | 备注为 `from-cashier`，无拒绝码 | 后写备注生效，无 `OCC` | 备注保持 `from-planner`，收银那笔 `OCC` |
+| `split_fields` | `assignee` 丢失 | 两个字段都在，无 `OCC` | `assignee` 为 `ada` 且 `note` 为 `paid-note` |
+
+```json
+{
+  "rows": [
+    {
+      "id": "confirm_and_pay",
+      "mode": "full_kernel",
+      "success": true,
+      "task_success": true,
+      "first_illegal_rate": 0,
+      "repair_success": false,
+      "handoff_mismatch": false,
+      "payment_charge_count": 1,
+      "receipt_send_count": 1
+    }
+  ]
+}
+```
+
+`repair_success` 在没有拒绝时为 false。`success` 仍表示该行符合本模式的期望。

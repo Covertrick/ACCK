@@ -14,15 +14,17 @@
 
 ## 内容
 
-HTTP、MCP 和 LangGraph 进入同一个进程。注册表在内存里。订单只有 `Kernel.commit` 能按 11 步写入。`no_kernel` 不经过它。
+HTTP、MCP、LangGraph 和协作层进入同一个进程。注册表在内存里。订单只有 `Kernel.commit` 能按 11 步写入。协作层调用模型，再调用提交或工具。`no_kernel` 不经过 `Kernel.commit`。
 
 ```mermaid
 flowchart LR
   HTTP[HTTP /v1] --> COMMIT[Kernel.commit]
   HTTP --> INVOKE[invoke_tool]
   MCP["POST /mcp"] --> INVOKE
-  LG[LangGraph] --> COMMIT
-  LG --> INVOKE
+  LG[LangGraph] --> COLLAB[协作层]
+  COLLAB --> LLM[LlmClient]
+  COLLAB --> COMMIT
+  COLLAB --> INVOKE
   COMMIT --> REG[Registry]
   INVOKE --> REG
   COMMIT --> PG[(PostgreSQL)]

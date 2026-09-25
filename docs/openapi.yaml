@@ -234,6 +234,7 @@ components:
         task_id: {type: string}
         doc_id: {type: string}
         document: {type: string, enum: [order]}
+        goal: {type: string}
         conflict_policy:
           type: string
           enum: [abort, refresh_and_replan, merge_if_disjoint]
@@ -250,6 +251,7 @@ components:
             properties:
               agent_id: {type: string}
               role: {type: string, enum: [planner, cashier]}
+              goal: {type: string}
     Op:
       type: object
       required: [op, path]
@@ -365,8 +367,10 @@ components:
         - deadline_at
         - replan_used
         - replan_limit
+        - goal
       properties:
         task_id: {type: string}
+        goal: {type: string}
         status: {type: string, enum: [running, aborted]}
         mode: {type: string, enum: [LIVE, STRICT, RESUME]}
         conflict_policy:

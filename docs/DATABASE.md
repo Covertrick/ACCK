@@ -55,13 +55,15 @@ CREATE TABLE tasks (
   tool_call_limit int NOT NULL,
   tool_calls_used int NOT NULL DEFAULT 0,
   deadline_at timestamptz NOT NULL,
-  cassette_next int NOT NULL DEFAULT 1
+  cassette_next int NOT NULL DEFAULT 1,
+  goal text NOT NULL DEFAULT ''
 );
 
 CREATE TABLE role_bindings (
   task_id text NOT NULL REFERENCES tasks(task_id),
   agent_id text NOT NULL,
   role text NOT NULL,
+  goal text NOT NULL DEFAULT '',
   PRIMARY KEY (task_id, agent_id)
 );
 
@@ -124,7 +126,7 @@ CREATE TABLE effects (
 );
 ```
 
-`status` 只写 `running` 或 `aborted`。`cassette_next` 是下一个 `step_id`，第一条为 1。工具合约不入库。支付桩不入库。
+`status` 只写 `running` 或 `aborted`。`cassette_next` 是下一个 `step_id`，第一条为 1。`tasks.goal` 是共同目标，`role_bindings.goal` 是角色目标。交接句不另建表，留在 `cassette.output`。工具合约不入库。支付桩不入库。
 
 ### 事务
 

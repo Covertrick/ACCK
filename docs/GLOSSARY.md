@@ -45,3 +45,8 @@
 | ModelCascade | 只出现在评测报告里的桶。无内核且没有拒绝码时使用。不是接口错误码 |
 | MCP | 同一 API 进程上的 `POST /mcp`。只有 `tools/list` 和 `tools/call`。请求只有 `method` 和 `params` |
 | 五道门 | 旧说法。检查顺序是 11 步，不用这个词代替 |
+| 协作层 | `collab/`。把目标、订单和上一轮拒绝交给模型，得到下一轮动作。不写订单 |
+| 决定 JSON | 模型的一轮输出。`action` 为 `read`、`tool`、`commit`、`handoff` 或 `stop` |
+| handoff | 角色结束前交给对方的一句话和 `claims`。只进 `llm` 轨迹 |
+| goal | 共同目标在任务上，角色目标在绑定上。共同目标为空则不启动协作循环 |
+| parallel_first_commit | 两个角色都先看版本 0，各决定一次提交，再先写规划者 |

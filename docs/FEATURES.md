@@ -20,10 +20,10 @@
 | 工具 | `read_order`、`place_order`、`refund`、`send_receipt` |
 | 冲突策略 | `abort`、`refresh_and_replan`、`merge_if_disjoint` |
 | 文档约束 | `order`：初值、状态迁移、角色路径 |
-| 编排适配器 | LangGraph。先规划者，后收银。每个节点每轮只解析一次模型输出，然后要么一次工具调用，要么一次提交。`OCC` 且仍可重规划时只重复当前节点 |
-| 模型 | 评测与演示默认脚本模型。`ACCK_LLM=live` 时换真实模型 |
+| 编排适配器 | LangGraph。只按角色启动第 14 节的协作循环 |
+| 模型 | 协作层调用。`order_v1` 与内核单测用脚本。演示和 `agent_v1` 在 `ACCK_LLM=live` 时用真实模型 |
 
-模型文本是一个 JSON 对象：`{"type":"tool","name","args","idempotency_key"}` 或 `{"type":"commit", ...PatchIntent 字段}`。解析失败则不改订单，该步原因码 `SCHEMA`。
+模型不进入 `Kernel.commit`。决定 JSON、循环和交接见第 14 节。
 
 ---
 
@@ -171,7 +171,7 @@ Agent 提交 `PatchIntent`：`task_id`、`doc_id`、`agent_id`、`base_version`�
 | `STRICT` | 不调用真实模型与工具。逐步对哈希。第一处不一致就停 |
 | `RESUME` | 检查点之前只读轨迹；之后按 `LIVE` |
 
-轨迹三类：`llm`（消息与提示词版本的哈希，以及输出）、`tool`（参数哈希与结果）、`commit`（意图哈希与提交结果）。创建任务没有用户原文字段，本版不写 `kind=input`。
+轨迹三类：`llm`（消息与提示词版本的哈希，以及决定 JSON）、`tool`（参数哈希与结果）、`commit`（意图哈希与提交结果）。任务目标存在 `tasks.goal`，角色目标存在 `role_bindings.goal`。不为此写 `kind=input`。`llm` 行由协作层在模型返回后写入。`tool` 与 `commit` 仍由工具路径和提交路径写入。
 
 第一条的 `step_id` 是 1。除幂等命中外，每次提交尝试都追加 `commit`，包括拒绝和幂等冲突。
 
@@ -212,7 +212,7 @@ Agent 提交 `PatchIntent`：`task_id`、`doc_id`、`agent_id`、`base_version`�
 | 读任务 | `GET /v1/tasks/{id}` |
 | MCP | `POST /mcp` |
 
-订单响应：`doc_id`、`version`、`content`、`content_hash`。任务响应：状态、模式、策略、token 与工具次数的已用和上限、截止时间、重规划已用和上限。
+订单响应：`doc_id`、`version`、`content`、`content_hash`。任务响应：状态、模式、策略、任务目标、token 与工具次数的已用和上限、截止时间、重规划已用和上限。
 
 MCP 只实现 `tools/list` 和 `tools/call`。列表返回注册表里的全部工具（四个都在），含名字、说明和参数要求。`tools/call` 只转给工具入口。不做登录、OAuth、资源订阅。
 
@@ -220,17 +220,51 @@ MCP 只实现 `tools/list` 和 `tools/call`。列表返回注册表里的全部�
 
 ## 12. 评测
 
-三种模式、十个用例、套件文件和报告见 `docs/HARNESS.md`。
+内核套件 `order_v1` 不进入协作循环。Agent 套件 `agent_v1` 进入第 14 节。两种报告的字段见 `docs/HARNESS.md`。
 
 ---
 
 ## 13. 演示
 
-`python demo/story.py` 在同一份订单上执行。每步打印账本最后一行。第 5 步再打印 `payment_charge_count=1`。
+`python demo/story.py` 跑协作演示。任务目标是「把订单确认为加急，总价 128，然后收款并出收据」。规划者把状态写成 `confirmed`、备注写成「加急」、总价写成 128，然后交接。收银用幂等键 `pay-1` 下单，把 `payment_id` 写成 `pay_pay-1`、状态写成 `paid`，再发送收据。最终订单等于 `docs/HARNESS.md` 里 `confirm_and_pay` 的标准结果，扣款次数为 1。脚本打印账本最后一行、最后一条交接，以及扣款次数。
 
-1. 两人基于版本 0 改备注：一笔 `OK`，一笔 `OCC`。
-2. 规划者写支付单号：`UNAUTHORIZED_PATH`，版本不变。
-3. 严格重放刚才的轨迹：无分叉。
-4. 从最后检查点恢复：版本不变，任务回到 `running`。
-5. 同一幂等键下单两次：扣款次数为 1。
-6. 打印三种模式的对照表。
+`ACCK_LLM=live` 时调用真实模型。否则按 `demo/fixtures/story_decisions.json` 回放决定，不调用真实模型。
+
+内核走查不经过协作层，六步命令和预期在 `docs/DEMO.md`。
+
+---
+
+## 14. 协作层
+
+协作层决定下一轮动作。内核决定这个动作能不能写入共享订单。`kernel` 不调用模型，不解析自然语言，也不引用协作层。
+
+`tasks.goal` 是交给两个角色的共同目标。`role_bindings.goal` 是该角色自己的目标。两者都可以是空字符串。空的共同目标表示这个任务不启动协作循环。`order_v1` 使用空目标，步骤直接提交或调用工具。
+
+模型每轮只输出一个 JSON：
+
+```json
+{
+  "thought": "只进入轨迹，内核不读",
+  "action": "read",
+  "utterance": "",
+  "claims": {},
+  "tool": null,
+  "commit": null
+}
+```
+
+`action` 只能是 `read`、`tool`、`commit`、`handoff`、`stop`。`tool` 含 `name`、`args`、`idempotency_key`。`commit` 是 `PatchIntent`。`claims` 可含 `total` 和 `status`。解析失败不改订单，该步原因码 `SCHEMA`，并把这段输出交回模型。
+
+模型每轮看到：角色与可写路径、当前订单、共同目标、本角色目标、上一轮原因码、剩余 token 和工具次数、对方最后一条 `handoff` 的 `utterance` 与 `claims`。当前订单以数据库为准。
+
+默认顺序：规划者直到 `handoff` 或 `stop`，或任务不再是 `running`；然后收银直到 `stop`，或任务不再是 `running`。`OCC` 且仍可重规划时，把当前订单和剩余重规划次数交给模型重写 patch。协作层不把上一份被拒绝的 ops 再提交一次。
+
+同一 Agent 连续两轮给出相同 ops 哈希时，不再调用 `Kernel.commit`。该轮记为非法提议，并结束该角色的循环。`SCHEMA`、`UNAUTHORIZED_PATH`、`IDEMPOTENCY_MISMATCH`，以及仍可重规划的 `OCC`，都把原因交回模型再决定一次。
+
+`send_receipt` 的批准令牌不由模型填写。当前订单 `status` 已是 `paid` 时，协作层附上 `ok-receipt`。否则原样调用，内核返回 `APPROVAL_REQUIRED`。
+
+`handoff` 的 `utterance` 和 `claims` 写在该步 `kind=llm` 的 `output` 里，不写入订单。`claims.total` 或 `claims.status` 与交接当时的订单不一致，记为话和状态不一致。收银之后以订单为准。
+
+`ACCK_LLM=live` 时，客户端使用 `ACCK_LLM_BASE_URL` 和 `ACCK_LLM_MODEL`，协议是 OpenAI 兼容的对话补全。`ACCK_LLM=script` 时，按套件中的 `decisions` 顺序弹出上面的 JSON。内核单测和 `order_v1` 不读这两个变量。STRICT 不调用模型，只回放已记下的 `output`。
+
+`note_conflict` 和 `split_fields` 使用 `parallel_first_commit`：两个角色都先只看到版本 0，各产生一次 `commit`，再先提交规划者、后提交收银。其余 Agent 用例走默认顺序。标准结果见 `docs/HARNESS.md`。

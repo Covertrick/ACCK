@@ -1,10 +1,10 @@
 # ACCK
 
-**Agent Collaboration Commitment Kernel。** 挂在现有多 Agent 编排器下面的协作提交内核，不是又一个编排框架。
+**Agent Collaboration Commitment Kernel。** 测量多 Agent 协作是否可靠：模型在外层决定下一步，共享订单只有经过内核校验的 patch 才能写入。
 
-多个 Agent 可以各自规划。共享订单只有经过内核校验的 patch 才能写入。模型的输出可以不确定；一旦要改共享状态，结果必须可拒绝、可审计、可重放。
+规划者和收银各自读自然语言目标、当前订单和上一轮拒绝，再在读订单、调工具、提交、交接、停止之间选择。模型可以不确定。写进共享订单的结果必须可拒绝、可审计、可重放。`Kernel.commit` 不调用模型，它是共享订单的唯一写入口。
 
-本版把这件事做在一份订单上。规划者可以改商品、备注、经办人和金额，收银可以写支付单号和状态。两人用同一旧版本改同一字段时，后写入的提交被拒绝，先写入的内容留在订单里。越权路径、重复扣款、超预算、轨迹被篡改，都在写入前停住。`Kernel.commit` 是共享订单的唯一写入口。
+本版做在一份订单上。规划者确认订单、写加急备注和总价；收银收款并出收据。两人拿着同一个旧版本改同一字段时，后写入的提交被拒绝。越权路径、重复扣款、超预算、轨迹被篡改，都在写入前停住。交接句只留在轨迹里，改不了订单。
 
 原则：认知可以非确定；后果提交必须确定。
 
@@ -31,14 +31,14 @@
 | 写代码 | [`docs/DECISIONS.md`](docs/DECISIONS.md) → [`docs/DATABASE.md`](docs/DATABASE.md) → [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) |
 | 写测试 | [`docs/HARNESS.md`](docs/HARNESS.md) → [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) 第 8 节 |
 | 改文档 | [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) |
-| 讲清楚某项决定为什么这样定 | [`docs/ADR/`](docs/ADR/) 的 001 到 005 → [`docs/DECISIONS.md`](docs/DECISIONS.md) |
+| 讲清楚某项决定为什么这样定 | [`docs/ADR/`](docs/ADR/) 的 001 到 006 → [`docs/DECISIONS.md`](docs/DECISIONS.md) |
 
 ## 做什么
 
 - 共享订单经内核校验后才能写入。失败码只有 `SCHEMA`、`UNAUTHORIZED_PATH`、`OCC`、`EFFECT`、`BUDGET`、`APPROVAL_REQUIRED`、`REPLAY_DIVERGENCE`、`IDEMPOTENCY_MISMATCH`、`TASK_ABORTED`。成功是 `OK`。
 - 检查顺序固定为 11 步。预算和副作用引用先于版本比较。插件只能替换门后的实现，不能重排检查，也不能自己 `UPDATE` 订单。
-- 内置一块订单文档、四个工具（`read_order`、`place_order`、`refund`、`send_receipt`）、三种冲突策略（`abort`、`refresh_and_replan`、`merge_if_disjoint`）、一个 LangGraph 薄适配器、进程内 MCP（`tools/list`、`tools/call`）。
-- 评测对照三种模式：`no_kernel`、`contract_only`、`full_kernel`。
+- 内置一块订单文档、四个工具（`read_order`、`place_order`、`refund`、`send_receipt`）、三种冲突策略（`abort`、`refresh_and_replan`、`merge_if_disjoint`）、一个协作层、一个 LangGraph 薄适配器、进程内 MCP（`tools/list`、`tools/call`）。
+- 内核评测 `order_v1` 用脚本步骤对照三种模式。Agent 评测 `agent_v1` 用同一套协作循环对照这三种模式，看任务是否成功、非法提议、拒绝后能否修订、交接是否与订单一致。
 
 ## 不做什么
 
@@ -50,7 +50,7 @@
 
 Python 3.11+、FastAPI、Pydantic v2、PostgreSQL 16、OpenTelemetry（内存 exporter）。API 端口 8000，Postgres 端口 5432。进程入口是 `uvicorn acck.api.app:app`。
 
-`kernel` 包不引用 LangGraph、FastAPI、MCP 和 `tools/`。
+`kernel` 包不引用 LangGraph、FastAPI、MCP、`tools/` 和 `collab`。真实模型使用 OpenAI 兼容接口，由 `ACCK_LLM_BASE_URL` 和 `ACCK_LLM_MODEL` 指定。
 
 ## 实现顺序
 
@@ -64,9 +64,11 @@ Python 3.11+、FastAPI、Pydantic v2、PostgreSQL 16、OpenTelemetry（内存 ex
 6. 轨迹、STRICT 重放、从检查点恢复。
 7. HTTP。
 8. OpenTelemetry。提交账本和工具效应上的 `trace_id` 要对上对应 span。
-9. LangGraph 适配器与六步演示 `demo/story.py`。
-10. MCP。`tools/list` 返回全部四个工具。
-11. 评测。三种模式的报告与 [`docs/HARNESS.md`](docs/HARNESS.md) 一致。
+9. 协作循环。模型决定读、工具、提交、交接或停止；拒绝后由模型修订。
+10. LangGraph 适配器与 `demo/story.py`。图只按角色启动协作循环。
+11. MCP。`tools/list` 返回全部四个工具。
+12. 内核评测 `order_v1`。
+13. Agent 评测 `agent_v1`。报告与 [`docs/HARNESS.md`](docs/HARNESS.md) 一致。
 
 各步对应的测试文件在 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) 第 8 节。
 
@@ -82,11 +84,11 @@ Python 3.11+、FastAPI、Pydantic v2、PostgreSQL 16、OpenTelemetry（内存 ex
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | 看已定决定，以及它们和 ADR 的对应 |
 | [`docs/API.md`](docs/API.md) | 看 REST 和 MCP |
 | [`docs/openapi.yaml`](docs/openapi.yaml) | 给生成客户端和校验工具读 |
-| [`docs/HARNESS.md`](docs/HARNESS.md) | 看三种模式和十个用例 |
-| [`docs/DEMO.md`](docs/DEMO.md) | 看六步演示的命令和预期 |
+| [`docs/HARNESS.md`](docs/HARNESS.md) | 看内核十例和 Agent 三例 |
+| [`docs/DEMO.md`](docs/DEMO.md) | 看协作演示和内核走查 |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 查术语 |
 | [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) | 看改哪一份文档 |
-| [`docs/ADR/`](docs/ADR/) | 看五项决定的理由 |
+| [`docs/ADR/`](docs/ADR/) | 看六项决定的理由 |
 
 ## 代码落地之后
 
@@ -96,9 +98,10 @@ Python 3.11+、FastAPI、Pydantic v2、PostgreSQL 16、OpenTelemetry（内存 ex
 python -m unittest discover -s tests
 python demo/story.py
 python -m harness.run --suite harness/suites/order_v1.yaml --mode full_kernel --out experiments/out
+python -m harness.run --suite harness/suites/agent_v1.yaml --mode full_kernel --out experiments/out
 ```
 
-六步演示的逐步命令和预期在 [`docs/DEMO.md`](docs/DEMO.md)。另外两种模式把 `--mode` 换成 `no_kernel` 或 `contract_only`。
+协作演示和内核走查的命令、预期在 [`docs/DEMO.md`](docs/DEMO.md)。另外两种模式把 `--mode` 换成 `no_kernel` 或 `contract_only`。没有设置 `ACCK_LLM=live` 时，演示回放 `demo/fixtures/story_decisions.json`。
 
 本地 Docker、PostgreSQL 16 上，提交延迟目标是 p50 小于 50 毫秒、p95 小于 200 毫秒（含被拒绝的提交）。超出只写入报告里的 `latency_note`，不把用例判失败。
 

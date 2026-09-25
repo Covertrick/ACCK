@@ -10,7 +10,7 @@
 
 ## 范围
 
-只覆盖 `docs/FEATURES.md` 第 9 节和 cassette 表。不改变记录的四类步骤。
+只覆盖 `docs/FEATURES.md` 第 9 节和 cassette 表。轨迹种类仍是 `llm`、`tool`、`commit`。
 
 ## 内容
 
@@ -38,4 +38,4 @@ STRICT 按 `step_id` 从小到大走已有轨迹。对每一步，用这次尝�
 
 篡改第 2 步的 `input_hash` 后，重放停在 `step_id=2`。第一条步骤的编号是 1。
 
-创建任务没有用户原文字段，所以不写 `kind=input`。演示走到第 3 步时，轨迹是 3 条 `commit`，重放成功的 `steps` 为 3。
+共同目标和角色目标存在任务表上，不写 `kind=input`。内核走查不经过协作层，前两步之后重放时轨迹是 3 条 `commit`，`steps` 为 3。协作演示的轨迹另含 `llm`。

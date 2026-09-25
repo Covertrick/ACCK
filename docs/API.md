@@ -49,14 +49,17 @@
   "token_limit": 2000,
   "tool_call_limit": 20,
   "wall_clock_seconds": 60,
+  "goal": "把订单确认为加急，总价 128，然后收款并出收据",
   "agents": [
-    {"agent_id": "a1", "role": "planner"},
-    {"agent_id": "a2", "role": "cashier"}
+    {"agent_id": "a1", "role": "planner", "goal": "把状态改为 confirmed，备注写成加急，总价写成 128，然后交接"},
+    {"agent_id": "a2", "role": "cashier", "goal": "用幂等键 pay-1 下单，把 payment_id 写成 pay_pay-1，状态写成 paid，再发送收据"}
   ]
 }
 ```
 
-成功时订单为功能文档第 2 节的初值，`version` 为 0，任务为 `running`、`LIVE`。截止时间是创建时刻 UTC 加上 `wall_clock_seconds`。
+`goal` 是共同目标，角色上的 `goal` 是该角色目标。省略时按空字符串保存。共同目标为空时，创建任务不会启动协作循环。
+
+成功时订单为功能文档第 2 节的初值，`version` 为 0，任务为 `running`、`LIVE`。截止时间是创建时刻 UTC 加上 `wall_clock_seconds`。任务响应包含 `goal`。
 
 ### 提交
 

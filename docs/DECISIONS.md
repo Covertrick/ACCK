@@ -23,6 +23,7 @@
 | B12、B13、B15 | `docs/ADR/003-strict-replay-input-hash.md` |
 | 需求中的不做 Kubernetes | `docs/ADR/004-no-k8s-in-this-version.md` |
 | B17，以及插件不能改检查顺序 | `docs/ADR/005-plugin-after-gates.md` |
+| B19、B24、B28 | `docs/ADR/006-llm-outside-kernel.md` |
 
 | 编号 | 决定 |
 |------|------|
@@ -56,11 +57,13 @@
 | B16 | `READ COMMITTED`。幂等唯一约束冲突后再读已提交行 |
 | B17 | 同名插件第二次注册失败，不覆盖 |
 | B18 | MCP 与 API 同一进程 |
-| B19 | 模型输出是 `type=tool` 或 `type=commit` 的 JSON。脚本在套件的 `script` 列表里 |
+| B19 | 协作层的模型输出是决定 JSON：`thought`、`action`、`utterance`、`claims`、`tool`、`commit`。`order_v1` 的 `script` 不进入协作循环 |
 | B20 | `success` 表示期望成立。`silent_corruption` 只比较订单。`ModelCascade` 不是内核码 |
 | B21 | `disjoint_field`：规划者写 `/assignee`，收银写 `/note` |
 | B22 | 账本按 `created_at`、`id` 升序。查询字段见 `docs/API.md` |
 | B23 | Python 3.11+、FastAPI、Pydantic v2、PostgreSQL 16、OpenTelemetry 内存 exporter。API 端口 8000 |
-| B24 | LangGraph 先规划者后收银。每轮一次模型输出，然后一次工具或一次提交 |
+| B24 | LangGraph 只按角色启动协作循环。规划者直到 `handoff` 或 `stop`，然后收银直到 `stop`。仍可重规划的 `OCC` 由模型重写 patch |
 | B25 | 工具成功体含 `reason_code` 与 `result`。`payment_id` 为 `pay_` 加幂等键。422 与 404 的体是 `{"detail":"..."}`。MCP 不包 `jsonrpc` 和 `id` |
 | B26 | 不写 `kind=input`。不配置连接池容量。本地提交目标 p50 小于 50 毫秒、p95 小于 200 毫秒，超出只写 `latency_note` |
+| B27 | 共同目标在 `tasks.goal`，角色目标在 `role_bindings.goal`。交接句只在 `kind=llm` 的 `output` 里 |
+| B28 | 模型不进入 `Kernel.commit`。`order_v1` 与内核单测用脚本。演示和 `agent_v1` 在 `ACCK_LLM=live` 时用真实模型。STRICT 不调用模型 |
